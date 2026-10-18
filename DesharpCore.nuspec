@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
+	<metadata minClientVersion="5.0">
+		<id>DesharpCore</id>
+		<version>$version$</version>
+		<title>DesharpCore - C#/VB.NET Debugging Tool</title>
+		<authors>rsobrepena</authors>
+		<owners>rsobrepena</owners>
+		<license type="expression">BSD-3-Clause</license>
+		<projectUrl>https://askroland.com</projectUrl>
+		<icon>desharp-icon.png</icon>
+		<readme>README.md</readme>
+		<repository type="git" url="https://github.com/rsobrepena/desharpcore" />
+		<language>en-US</language>
+		<requireLicenseAcceptance>false</requireLicenseAcceptance>
+		<description>
+DesharpCore - C#/VB .NET debuging utility to dump or log structured variables, exceptions, stack traces and much more into console, Visual Studio console, into HTML web response as a floating window or into html/text log files on HDD.
+Download and install Visual Studio code snippets for DesharpCore: https://github.com/rsobrepena/desharpcore/codesnippets
+Requires .NET 10 or later, ASP.NET Core MVC or Razor Pages.
+    </description>
+  <copyright>Copyright © 2026 rsobrepena</copyright>
+		<tags>csharp cs vb-net vb aspnetcore razor-pages debug debugging logging trace tracing tool utility web console asp-net-mvc html-response stack-traces</tags>
+		<dependencies>
+			<group targetFramework="net10.0">
+				<dependency id="Newtonsoft.Json" version="13.0.4" />
+				<dependency id="System.CodeDom" version="10.0.13" />
+			</group>
+		</dependencies>
+		<frameworkReferences>
+			<group targetFramework="net10.0">
+				<frameworkReference name="Microsoft.AspNetCore.App" />
+			</group>
+		</frameworkReferences>
+		<releaseNotes>https://github.com/rsobrepena/desharpcore/releases</releaseNotes>
+	</metadata>
+	<files>
+		<file src="gfx/desharp-icon.png" target="" />
+		<file src="README.md" target="" />
+		<file src="bin/$configuration$/net10.0/DesharpCore.dll" target="lib/net10.0" />
+		<file src="bin/$configuration$/net10.0/DesharpCore.xml" target="lib/net10.0" />
+		<file src="content/appsettings.DesharpCore.example.json" target="content/appsettings.DesharpCore.example.json" />
+	</files>
+</package>

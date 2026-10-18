@@ -1,0 +1,8 @@
+@model TodoItem
+<div asp-validation-summary="All" class="error"></div>
+<input type="hidden" asp-for="Id" /><input type="hidden" asp-for="IsDone" /><input type="hidden" asp-for="CreatedAt" />
+<p><label asp-for="Title"></label><br /><input asp-for="Title" /></p>
+<p><label asp-for="Notes"></label><br /><textarea asp-for="Notes"></textarea></p>
+<p><label asp-for="Priority"></label><br /><select asp-for="Priority" asp-items="Html.GetEnumSelectList<Priority>()"></select></p>
+<p><label asp-for="DueDate"></label><br /><input asp-for="DueDate" type="date" /></p>
+<button>Save</button> <a asp-action="Index">Cancel</a>

@@ -1,0 +1,4 @@
+@model TodoItem
+@{ ViewData["Title"] = "Edit todo"; }
+<h2>Edit todo #@Model.Id</h2>
+<form asp-action="Edit" method="post"><partial name="_Form" model="Model" /></form>

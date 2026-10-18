@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] - ExampleTodoMVC</title>
+    <link rel="stylesheet" href="~/css/site.css" />
+</head>
+<body>
+<header>
+    <h1>DesharpCore Todo</h1>
+    <nav>
+        <a asp-controller="Todo" asp-action="Index">Todos</a>
+        <a asp-controller="Todo" asp-action="Create">New todo</a>
+        <a asp-controller="Debug" asp-action="Index">Debug features</a>
+    </nav>
+</header>
+<main>
+    @if (TempData["Message"] != null) { <p class="flash">@TempData["Message"]</p> }
+    @RenderBody()
+</main>
+</body>
+</html>

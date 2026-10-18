@@ -1,0 +1,5 @@
+@model TodoItem
+@{ ViewData["Title"] = "New todo"; }
+<h2>New todo</h2>
+<p>Submit an empty title: the validation errors are dumped into the debug bar.</p>
+<form asp-action="Create" method="post"><partial name="_Form" model="Model" /></form>

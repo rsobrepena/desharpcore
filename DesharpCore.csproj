@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>DesharpCore</RootNamespace>
+    <AssemblyName>DesharpCore</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    <Version>1.0.0</Version>
+    <PackageId>DesharpCore</PackageId>
+    <Authors>rsobrepena</Authors>
+    <Company>rsobrepena</Company>
+    <PackageProjectUrl>https://askroland.com</PackageProjectUrl>
+    <NuspecFile>$(MSBuildProjectDirectory)/DesharpCore.nuspec</NuspecFile>
+    <NuspecProperties>version=$(Version);configuration=$(Configuration)</NuspecProperties>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;tests/**;ExampleTodoMVC\**;ExampleTodoMVC/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="System.CodeDom" Version="10.0.13" />
+  </ItemGroup>
+
+</Project>

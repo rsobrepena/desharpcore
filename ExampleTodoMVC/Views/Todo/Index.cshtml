@@ -1,0 +1,23 @@
+@model IReadOnlyList<TodoItem>
+@{ ViewData["Title"] = "Todos"; }
+<h2>Todos (@Model.Count(i => !i.IsDone) open)</h2>
+<p>Open the DesharpCore bar at the bottom of the page: the <b>Dumps</b> panel shows what <code>TodoController.Index</code> dumped.</p>
+<table>
+    <tr><th></th><th>Title</th><th>Priority</th><th>Due</th><th></th></tr>
+    @foreach (var t in Model)
+    {
+        <tr class="@(t.IsDone ? "done" : "")">
+            <td>
+                <form asp-action="Toggle" asp-route-id="@t.Id" method="post"><button>@(t.IsDone ? "↺" : "✓")</button></form>
+            </td>
+            <td>@t.Title<br /><small>@t.Notes</small></td>
+            <td class="p-@t.Priority">@t.Priority</td>
+            <td>@t.DueDate?.ToString("yyyy-MM-dd")</td>
+            <td>
+                <a asp-action="Edit" asp-route-id="@t.Id">Edit</a>
+                <form asp-action="Delete" asp-route-id="@t.Id" method="post"><button>Delete</button></form>
+            </td>
+        </tr>
+    }
+</table>
+<p><form asp-action="Toggle" asp-route-id="9999" method="post"><button>Toggle a missing todo (logs a caught exception)</button></form></p>

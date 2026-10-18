@@ -1,0 +1,713 @@
+using DesharpCore.Producers;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Threading;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Newtonsoft.Json;
+using static DesharpCore.Core.AppExitWatcher;
+
+namespace DesharpCore.Core {
+	internal class Dispatcher {
+		internal static bool StaticInitialized = false;
+        internal static ReaderWriterLockSlim StaticInitLock = new ReaderWriterLockSlim();
+		internal static EnvType EnvType;
+		internal static string AppRoot;
+		internal static string SourcesRoot;
+		internal static string Directory;
+		internal static int LogWriteMilisecond = 0;
+		internal static List<string> WebDebugIps = new List<string>();
+		internal static int DumpDepth = 3;
+		internal static int DumpMaxLength = 1024;
+        internal static bool SourceLocation = false;
+		internal static bool? EnabledGlobal = null;
+        internal static bool DumpCompillerGenerated = false;
+        internal static LogFormat? OutputGlobal = null;
+		internal static Dictionary<string, int> Levels;
+		internal static string WebStaticErrorPage;
+
+		protected static List<string> webHtmlXmlMimeTypes = new List<string>() {
+			"text/html", "application/xhtml+xml", "text/xml",
+			"application/xml", "image/svg+xml", "application/rss+xml",
+		};
+		
+		//protected static ReaderWriterLockSlim dispatchersLock = new ReaderWriterLockSlim();
+		internal static object dispatchersLock = new object { };
+		internal static volatile Dictionary<string, Dispatcher> dispatchers = new Dictionary<string, Dispatcher>();
+
+		protected static string callContextKey = typeof(Dispatcher).FullName;
+		protected static Dictionary<string, Type> webBarRegisteredPanels = new Dictionary<string, Type>();
+		
+        internal Exception LastError = null;
+		internal int DumperSequence = 0;
+		internal string CurrentlyRendererView = "";
+		internal LogFormat Output;
+		internal bool? Enabled = null;
+		internal Dictionary<string, double> Timers = new Dictionary<string, double>();
+		internal bool WebAssetsInserted = false;
+		internal int WebRequestState = 0;
+		internal double WebRequestEndTime = 0;
+
+        internal FireDump FireDump = null;
+        protected bool? webRedirect = false;
+		// -1 - it will be never rendered, 0 - it shoud be rendered but will not by default, 1 - it will be rendered
+		protected int webRenderDesharpBar = 0;
+		protected bool webTransmitErrorPage = false;
+		protected List<List<RenderedPanel>> webReqEndSession = null;
+		protected Dictionary<string, Panels.IPanel> webBarPanels = null;
+		protected List<string> webExceptions = null;
+
+		static Dispatcher () {
+            lock (Dispatcher.dispatchersLock) {
+                //try {
+                    Dispatcher.StaticInitLock.EnterUpgradeableReadLock();
+                    if (Dispatcher.StaticInitialized) {
+                        Dispatcher.StaticInitLock.ExitUpgradeableReadLock();
+                        return;
+                    }
+                    Dispatcher.StaticInitLock.EnterWriteLock();
+                    Dispatcher.StaticInitLock.ExitUpgradeableReadLock();
+                    int cfgDepth = Config.GetDepth();
+                    if (cfgDepth > 0) Dispatcher.DumpDepth = cfgDepth;
+                    int cfgMaxLength = Config.GetMaxLength();
+                    if (cfgMaxLength > 0) Dispatcher.DumpMaxLength = cfgMaxLength;
+                    bool? cfgSourceLoc = Config.GetSourceLocation();
+                    if (cfgSourceLoc.HasValue) Dispatcher.SourceLocation = cfgSourceLoc.Value;
+                    Dispatcher.Levels = Config.GetLevels();
+                    Dispatcher.LogWriteMilisecond = Config.GetLogWriteMilisecond();
+                    bool appRootInitialized = false;
+                    if (WebContext.Hosted) {
+                        Dispatcher.EnvType = EnvType.Web;
+                        Dispatcher.AppRoot = (WebContext.ContentRoot ?? AppContext.BaseDirectory)
+                            .Replace('\\', '/').TrimEnd('/');
+                        appRootInitialized = true;
+                        Dispatcher.staticInitWeb();
+                    } else {
+                        Dispatcher.EnvType = EnvType.Windows;
+                        try {
+                            Dispatcher.AppRoot = System.IO.Path.GetDirectoryName(
+                                System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName
+                            ).Replace('\\', '/').TrimEnd('/');
+                            appRootInitialized = true;
+                        } catch {
+                        }
+                        bool exited = false;
+                        /*
+					    var bgThread = new System.Threading.Thread(new ThreadStart(delegate () {
+						    while (true) { 
+							    System.Threading.Thread.Sleep(1000);
+							    if (exited) break;
+						    }
+					    }));
+					    bgThread.IsBackground = true;
+					    bgThread.Priority = ThreadPriority.Lowest;
+					    bgThread.Start();
+					    */
+                        AppDomain.CurrentDomain.UnhandledException += delegate (object o, UnhandledExceptionEventArgs e1) {
+                            Debug.Log(e1.ExceptionObject as Exception);
+                            exited = true;
+                            if (e1.IsTerminating) Dispatcher.Disposed();
+                            Environment.Exit(1);
+                        };
+                        if (Dispatcher.LogWriteMilisecond > 0) {
+                            AppDomain.CurrentDomain.ProcessExit += delegate (object o, EventArgs e2) {
+                                Dispatcher.Disposed();
+                                exited = true;
+                            };
+                            AppExitWatcher.SetConsoleCtrlHandler(new HandlerRoutine((type) => {
+                                if (exited) return true;
+                                Dispatcher.Disposed();
+                                return true;
+                            }), true);
+                        }
+                    }
+                    bool isWindows = Tools.IsWindows();
+                    if (appRootInitialized && isWindows)
+                        Dispatcher.AppRoot = Dispatcher.AppRoot.Substring(0, 1).ToUpper()
+                            + Dispatcher.AppRoot.Substring(1);
+                    if (
+                        appRootInitialized && isWindows && (
+                            Dispatcher.AppRoot.IndexOf("/bin/Debug") == Dispatcher.AppRoot.Length - 10 ||
+                            Dispatcher.AppRoot.IndexOf("/bin/Release") == Dispatcher.AppRoot.Length - 12
+                        )
+                    ) {
+                        Dispatcher.SourcesRoot = System.IO.Path.GetFullPath(
+                            Dispatcher.AppRoot + "/../.."
+                        ).Replace('\\', '/');
+                    } else {
+                        Dispatcher.SourcesRoot = "";
+                    }
+                    Dispatcher.staticInitEnabledGlobal();
+                    Dispatcher.staticInitOutputGlobal();
+                    Dispatcher.staticInitDumpCompillerGenerated();
+                    if (appRootInitialized)
+                        Dispatcher.staticInitDirectory(Config.GetDirectory());
+                    FileLog.StaticInit();
+                    Dispatcher.StaticInitLock.ExitWriteLock();
+                //} catch (Exception e3) {
+                //    Debug.InitErrors.Add(e3);
+                //}
+            }
+		}
+		/// <summary>
+		/// Switch the dispatcher into web environment, called by the ASP.NET Core middleware registration.
+		/// </summary>
+		internal static void EnsureWebEnvironment () {
+			RuntimeHelpers.RunClassConstructor(typeof(Dispatcher).TypeHandle);
+			lock (Dispatcher.dispatchersLock) {
+				Dispatcher.EnvType = EnvType.Web;
+				if (Dispatcher.webInitialized) return;
+				Dispatcher.AppRoot = (WebContext.ContentRoot ?? AppContext.BaseDirectory)
+					.Replace('\\', '/').TrimEnd('/');
+				if (Tools.IsWindows())
+					Dispatcher.AppRoot = Dispatcher.AppRoot.Substring(0, 1).ToUpper() + Dispatcher.AppRoot.Substring(1);
+				Dispatcher.staticInitWeb();
+				if (!Dispatcher.enabledConfigured) {
+					Dispatcher.EnabledGlobal = null;
+					Dispatcher.staticInitEnabledGlobal();
+				}
+				Dispatcher.staticInitDirectory(Config.GetDirectory());
+			}
+		}
+		private static bool webInitialized = false;
+		private static bool enabledConfigured = false;
+		protected static void staticInitWeb () {
+			Dispatcher.webInitialized = true;
+			Dispatcher.WebDebugIps = Config.GetDebugIps();
+			Dispatcher.staticInitWebRegisterPanels(typeof(Panels.Exceptions), typeof(Panels.Dumps));
+			Dispatcher.staticInitWebRegisterPanels(Config.GetDebugPanels());
+			Dispatcher.staticInitWebErrorPage(Config.GetErrorPage());
+		}
+		internal static Dispatcher GetCurrent (bool createIfNecessary = true) {
+			string dispatchedKey = Dispatcher.EnvType == EnvType.Web 
+                ? Tools.GetRequestId().ToString() 
+                : $"{Tools.GetProcessId()}:{Tools.GetThreadId()}";
+            Dispatcher result = null;
+
+			/*result = CallContext.GetData(Dispatcher.callContextKey) as Dispatcher;
+			if (!(result is Dispatcher)) {
+				result = new Dispatcher();
+				CallContext.SetData(Dispatcher.callContextKey, result);
+			}*/
+
+			/*Dispatcher.dispatchersLock.EnterUpgradeableReadLock();
+            if (!Dispatcher.dispatchers.ContainsKey(dispatchedKey) & createIfNecessary) {
+                Dispatcher.dispatchersLock.EnterWriteLock();
+                Dispatcher.dispatchersLock.ExitUpgradeableReadLock();
+                result = new Dispatcher();
+                Dispatcher.dispatchers[dispatchedKey] = result;
+                Dispatcher.dispatchersLock.ExitWriteLock();
+            } else {
+                Dispatcher.dispatchersLock.EnterReadLock();
+                Dispatcher.dispatchersLock.ExitUpgradeableReadLock();
+                result = Dispatcher.dispatchers[dispatchedKey];
+                Dispatcher.dispatchersLock.ExitReadLock();
+            }*/
+
+			lock (Dispatcher.dispatchersLock) {
+                if (!Dispatcher.dispatchers.ContainsKey(dispatchedKey) && createIfNecessary) {
+                    Dispatcher.dispatchers[dispatchedKey] = new Dispatcher();
+                }
+                if (Dispatcher.dispatchers.ContainsKey(dispatchedKey)) {
+                    result = Dispatcher.dispatchers[dispatchedKey];
+                }
+            }
+
+			return result;
+		}
+		internal static bool Remove () {
+			bool removed = false;
+            string dispatchedKey = Dispatcher.EnvType == EnvType.Web
+                ? Tools.GetRequestId().ToString()
+                : $"{Tools.GetProcessId()}:{Tools.GetThreadId()}";
+
+			/*CallContext.FreeNamedDataSlot(Dispatcher.callContextKey);
+			return true;*/
+			
+			/*Dispatcher.dispatchersLock.EnterWriteLock();
+            removed = Dispatcher.dispatchers.ContainsKey(dispatchedKey)
+                ? Dispatcher.dispatchers.Remove(dispatchedKey)
+                : false;
+            Dispatcher.dispatchersLock.ExitWriteLock();*/
+
+			lock (Dispatcher.dispatchersLock) {
+                removed = Dispatcher.dispatchers.Remove(dispatchedKey);
+            }
+
+			return removed;
+		}
+		internal static void Disposed () {
+			FileLog.Disposed();
+		}
+		internal static bool WebCheckIfRequestIsForHtml () {
+			string requestAcceptTypes = WebContext.Current.Request.Headers["Accept"].ToString();
+			string requestFirstAcceptType = requestAcceptTypes.Split(',')[0].Trim().ToLower();
+			bool result = false;
+			foreach (string mimeType in Dispatcher.webHtmlXmlMimeTypes) {
+				if (mimeType.IndexOf("html") > -1) {
+					if (requestFirstAcceptType.IndexOf(mimeType) > -1) {
+						result = true;
+						break;
+					}
+				} else {
+					break;
+				}
+			}
+			return result;
+		}
+		internal static bool WebCheckIfResponseIsHtmlOrXml (bool checkForXmlOnly = false) {
+			string responseContentType = (WebContext.Current.Response.ContentType ?? "").ToLower();
+			bool result = false;
+			if (checkForXmlOnly) {
+				foreach (string mimeType in Dispatcher.webHtmlXmlMimeTypes) {
+					if (mimeType.IndexOf("xml") > -1 && responseContentType.IndexOf(mimeType) > -1) {
+						result = true;
+						break;
+					}
+				}
+			} else {
+				foreach (string mimeType in Dispatcher.webHtmlXmlMimeTypes) {
+					if (mimeType.IndexOf("html") > -1) {
+						if (responseContentType.IndexOf(mimeType) > -1) {
+							result = true;
+							break;
+						}
+					} else {
+						break;
+					}
+				}
+			}
+			return result;
+		}
+		protected static void staticInitEnabledGlobal () {
+			if (Dispatcher.EnabledGlobal.HasValue) return;
+			// determinate enabled bool globaly by main process compilation mode
+			bool webEnvironment = Dispatcher.EnvType == EnvType.Web;
+			// first - look into config if there is strictly defined debug mode on or off
+			bool? configScrictValue = Config.GetEnabled();
+			if (configScrictValue.HasValue) {
+				Dispatcher.EnabledGlobal = configScrictValue.Value;
+			} else {
+				// try to determinate debug mode by entry assembly compilation type:
+				bool entryAssemblyBuildedAsDebug = Tools.IsAssemblyBuildAsDebug(
+					webEnvironment ? Tools.GetWebEntryAssembly() : Tools.GetWindowsEntryAssembly()
+				);
+				// try to determinate debug mode by ASP.NET Core hosting environment (Development)
+				bool debugModeByConfig = webEnvironment && WebContext.IsDevelopment;
+				// try to determinate if debugger from visual studio is currently attached
+				bool vsDebuggerAttached = System.Diagnostics.Debugger.IsAttached;
+				// now set enabled boolean to true if any of these values is true
+				Dispatcher.EnabledGlobal = entryAssemblyBuildedAsDebug || debugModeByConfig || vsDebuggerAttached;
+            }
+            if (!webEnvironment) {
+				// for desktop apps - create every second checking if debugger is attached
+				WinDebuggerAttaching.GetInstance().Changed += (o, e) => {
+					Dispatcher.EnabledGlobal = ((WinDebuggerAttachingEventArgs)e).Attached;
+				};
+			}
+		}
+		protected static void staticInitOutputGlobal () {
+			LogFormat? strictConfigValue = Config.GetLogFormat();
+			if (strictConfigValue.HasValue) {
+				Dispatcher.OutputGlobal = strictConfigValue;
+			} else {
+				Dispatcher.OutputGlobal = LogFormat.Text;
+			}
+		}
+        protected static void staticInitDumpCompillerGenerated () {
+            bool? dumpCompillerGenerated = Config.GetDumpCompillerGenerated();
+            if (dumpCompillerGenerated.HasValue) Dispatcher.DumpCompillerGenerated = dumpCompillerGenerated.Value;
+        }
+        protected static void staticInitDirectory (string dirRelOrFullPath = "") {
+			string fullPath;
+			if (dirRelOrFullPath.Length > 0) {
+				fullPath = dirRelOrFullPath;
+				if (fullPath.IndexOf("~") > -1) {
+					fullPath = fullPath.Replace("~", Dispatcher.AppRoot);
+				}
+				fullPath = Path.GetFullPath(fullPath);
+				fullPath = fullPath.Replace('\\', '/').TrimEnd('/');
+			} else {
+				fullPath = Dispatcher.AppRoot;
+			}
+			if (Tools.IsWindows()) fullPath = fullPath.Substring(0, 1).ToUpper() + fullPath.Substring(1);
+			Dispatcher.Directory = fullPath;
+			// create the directory if doesn't exists and if ot's not a root dir
+			if (Dispatcher.AppRoot != Dispatcher.Directory) {
+				if (!(System.IO.Directory.Exists(Dispatcher.Directory))) {
+					try {
+						System.IO.Directory.CreateDirectory(Dispatcher.Directory);
+					} catch (Exception e) {
+						Dispatcher.Directory = Dispatcher.AppRoot;
+						Debug.Dump(e);
+					}
+				}
+			}
+		}
+		protected static void staticInitWebRegisterPanels (params Type[] panels) {
+			Type panel;
+			for (int i = 0; i < panels.Length; i++) {
+				panel = panels[i];
+				if (!Dispatcher.webBarRegisteredPanels.ContainsKey(panel.FullName)) {
+					Dispatcher.webBarRegisteredPanels.Add(panel.FullName, panel);
+				}
+			}
+			Type sysInfoPanelType = typeof(Panels.SystemInfo);
+			string sysInfoPanelName = sysInfoPanelType.FullName;
+			if (Dispatcher.webBarRegisteredPanels.ContainsKey(sysInfoPanelName)) {
+				Dispatcher.webBarRegisteredPanels.Remove(sysInfoPanelName);
+				Dispatcher.webBarRegisteredPanels = (
+					new Dictionary<string, Type> { { sysInfoPanelName, sysInfoPanelType } }
+				).Concat(Dispatcher.webBarRegisteredPanels)
+				.ToDictionary(k => k.Key, v => v.Value);
+			}
+		}
+		protected static void staticInitWebErrorPage (string cfgErrorPage) {
+			string errorPage = "";
+			if (cfgErrorPage.Length > 0) {
+				if (cfgErrorPage.IndexOf("~") > -1) {
+					cfgErrorPage = cfgErrorPage.Replace("~", Dispatcher.AppRoot);
+				}
+				cfgErrorPage = Path.GetFullPath(cfgErrorPage);
+				cfgErrorPage = cfgErrorPage.Replace('\\', '/');
+				if (File.Exists(cfgErrorPage)) {
+					errorPage = File.ReadAllText(cfgErrorPage);
+				}
+			}
+			if (errorPage.Length == 0) errorPage = Assets.error_html;
+			Dispatcher.WebStaticErrorPage = errorPage;
+		}
+		protected static bool webCheckIfResponseIsRedirect () {
+			HttpResponse response = WebContext.Current.Response;
+			int httpStatusCode = response.StatusCode;
+			bool redirectCode = (httpStatusCode >= 300 && httpStatusCode < 400);
+			if (redirectCode) return true;
+			bool redirectHeader = false;
+			string[] headerNames = response.Headers.Keys.ToArray();
+			string header;
+			for (int i = 0, l = headerNames.Length; i < l; i += 1) {
+				header = headerNames[i].Trim().ToLower();
+				if (header.IndexOf("location", StringComparison.OrdinalIgnoreCase) == 0 || header.IndexOf("refresh", StringComparison.OrdinalIgnoreCase) == 0) {
+					redirectHeader = true;
+					break;
+				}
+			}
+			return redirectHeader;
+		}
+		protected static List<List<RenderedPanel>> webGetSessionStorrage () {
+			List<List<RenderedPanel>> result = new List<List<RenderedPanel>>();
+			ISession session = WebContext.Session;
+			if (session != null) {
+				try {
+					string json = session.GetString(Debug.SESSION_STORAGE_KEY);
+					if (!String.IsNullOrEmpty(json)) {
+						result = JsonConvert.DeserializeObject<List<List<RenderedPanel>>>(json) ?? result;
+					}
+				} catch { }
+			}
+			return result;
+		}
+
+        internal Dispatcher () {
+            if (Dispatcher.EnvType == EnvType.Web) {
+                this.webInitEnabled();
+            } else {
+                this.Enabled = Dispatcher.EnabledGlobal;
+            }
+			if (System.Diagnostics.Debugger.IsAttached) this.Enabled = true;
+			this.Output = Dispatcher.OutputGlobal.Value;
+		}
+        internal FireDump GetFireDump () {
+            if (this.FireDump == null) this.FireDump = new FireDump(this.Enabled == true);
+            return this.FireDump;
+        }
+		internal void Configure (DebugConfig cfg) {
+            lock (Dispatcher.dispatchersLock) {
+                if (cfg.EnvType != EnvType.Auto)
+                    Dispatcher.EnvType = cfg.EnvType;
+                if (cfg.Enabled.HasValue) {
+                    Dispatcher.enabledConfigured = true;
+                    this.Enabled = cfg.Enabled.Value;
+                    Dispatcher.EnabledGlobal = cfg.Enabled.Value;
+                    foreach (var kvp in Dispatcher.dispatchers) {
+                        kvp.Value.Enabled = cfg.Enabled.Value;
+                    }
+                }
+                if (cfg.LogFormat != LogFormat.Auto)
+                    this.Output = cfg.LogFormat;
+                if (cfg.Directory != null && cfg.Directory.Length > 0)
+                    Dispatcher.staticInitDirectory(cfg.Directory);
+                if (cfg.ErrorPage != null && cfg.ErrorPage.Length > 0)
+                    Dispatcher.staticInitWebErrorPage(cfg.ErrorPage);
+                if (cfg.Depth != null && cfg.Depth.Value > 0)
+                    Dispatcher.DumpDepth = cfg.Depth.Value;
+                if (cfg.LogWriteMilisecond != null && cfg.LogWriteMilisecond.Value > 0) {
+                    Dispatcher.LogWriteMilisecond = cfg.LogWriteMilisecond.Value;
+                    FileLog.InitBackgroundWritingIfNecessary();
+                }
+                if (cfg.SourceLocation.HasValue)
+                    Dispatcher.SourceLocation = cfg.SourceLocation.Value;
+                if (cfg.Panels != null && cfg.Panels.Length > 0)
+                    Dispatcher.staticInitWebRegisterPanels(cfg.Panels);
+            }
+		}
+		internal void WriteDumpToOutput (string dumpedCode) {
+			if (Dispatcher.EnvType == EnvType.Web) {
+				if (!this.Enabled.HasValue) this.webInitEnabled();
+				if (this.Enabled.Value != true) {
+					FileLog.Log(dumpedCode, LevelValues.Values[Level.DEBUG]);
+				} else {
+					if (this.webBarPanels == null) {
+						this.webRenderDesharpBar = 1; // forcely change to render web bar
+						this.webInitWebBarPanels();
+					}
+					if (this.webBarPanels.ContainsKey(Panels.Dumps.PanelName)) {
+						Panels.Dumps dumpsPanel = this.webBarPanels[Panels.Dumps.PanelName] as Panels.Dumps;
+						dumpsPanel.AddRenderedDump(dumpedCode);
+					}
+				}
+			} else {
+				Console.Write(dumpedCode);
+			}
+		}
+		internal void WriteExceptionToOutput (List<string> dumpedExceptions) {
+			if (Dispatcher.EnvType == EnvType.Web) {
+				if (!this.Enabled.HasValue) this.webInitEnabled();
+				if (this.Enabled.Value != true) {
+					foreach (string dumpedException in dumpedExceptions) {
+						FileLog.Log(dumpedException, "exception");
+					}
+				} else {
+					if (this.webBarPanels == null) {
+						this.webRenderDesharpBar = 1; // forcely change to render web bar
+						this.webInitWebBarPanels();
+					}
+					if (this.webBarPanels.ContainsKey(Panels.Dumps.PanelName)) {
+						Panels.Exceptions exceptionsPanel = this.webBarPanels[Panels.Exceptions.PanelName] as Panels.Exceptions;
+						foreach (string dumpedException in dumpedExceptions) {
+							exceptionsPanel.AddRenderedException(dumpedException);
+						}
+					}
+				}
+			} else {
+				Console.WriteLine(String.Join(Environment.NewLine, dumpedExceptions.ToArray()));
+			}
+		}
+		internal void Stop () {
+			if (Dispatcher.EnvType == EnvType.Web) {
+				// the DesharpCore middleware completes the response and ends the request
+				throw new WebContext.StopRequestException();
+			} else {
+                Environment.Exit(Environment.ExitCode);
+            }
+		}
+		internal void WebRequestBegin () {
+			if (this.Enabled == true) {
+				this.webInitBarRendering();
+				this.webInitWebBarPanels();
+			}
+			this.WebRequestState = 1;
+		}
+		internal void WebRequestSessionBegin () {
+			if (this.WebRequestState < 2) {
+				if (this.Enabled == true && this.webBarPanels != null) {
+					DesharpCore.Panels.ISessionPanel sessionPanel;
+					foreach (var item in this.webBarPanels) {
+						if (item.Value is DesharpCore.Panels.ISessionPanel) {
+							sessionPanel = item.Value as DesharpCore.Panels.ISessionPanel;
+							try {
+								sessionPanel.SessionBegin();
+							} catch { }
+						}
+					}
+				}
+				this.WebRequestState = 2;
+			}
+		}
+		internal void WebRequestSessionEnd () {
+			if (this.WebRequestState < 3) {
+				if (this.Enabled == true && this.webBarPanels != null) { 
+					this.WebRequestEndTime = Debug.GetProcessingTime();
+					ISession session = WebContext.Session;
+					List<List<RenderedPanel>> sessionStorrage = Dispatcher.webGetSessionStorrage();
+					this.webRedirect = Dispatcher.webCheckIfResponseIsRedirect();
+					if (this.webRedirect == true) {
+						this.webRequestSessionEndCallBarPanelsSessionEnd();
+						List<RenderedPanel> renderedPanels = HtmlResponse.RenderDebugPanels(this.webBarPanels);
+						sessionStorrage.Insert(0, renderedPanels);
+						if (session != null) {
+							session.SetString(Debug.SESSION_STORAGE_KEY, JsonConvert.SerializeObject(sessionStorrage));
+						}
+						this.webBarPanels = null; // frees memory
+					} else {
+						this.webReqEndSession = sessionStorrage;
+						// clear session storage, panels will be rendered in this request end event
+						if (session != null && session.GetString(Debug.SESSION_STORAGE_KEY) != null) {
+							session.Remove(Debug.SESSION_STORAGE_KEY);
+						}
+						this.webRequestSessionEndCallBarPanelsSessionEnd();
+					}
+				}
+				this.WebRequestState = 3;
+			}
+		}
+		internal void WebRequestPreSendHeaders () {
+			this.GetFireDump().CloseHeaders();
+			if (this.Enabled == true) {
+				if (!Dispatcher.webResponseCanHaveBody()) this.webRenderDesharpBar = -1;
+				if (!this.webRedirect.HasValue) this.webRedirect = Dispatcher.webCheckIfResponseIsRedirect();
+				// add possible rendered exceptions and debug bar if necessary
+				if (this.webRenderDesharpBar > -1 && Dispatcher.WebCheckIfResponseIsHtmlOrXml()) {
+					this.webRenderDesharpBar = 1;
+				}
+				if (this.webRenderDesharpBar == 1 && this.webRedirect != true) {
+					if (!Dispatcher.WebCheckIfResponseIsHtmlOrXml()) {
+						// if there was necessary to render in output anything (by response type change to text/html)
+						// change response to that type if it is not any proper type to render any html code
+						WebContext.Current.Response.ContentType = "text/html";
+					}
+					// the debug bar is appended to the response body, so the original content length is not valid anymore
+					WebContext.Current.Response.ContentLength = null;
+					// manage Content-Security-Policy http header
+					this.webManageContentSecurityPolicyHeader();
+				}
+			} else {
+				if (this.webTransmitErrorPage && Dispatcher.WebStaticErrorPage.Length > 0)
+					HtmlResponse.TransmitStaticErrorPagePrepareHeaders();
+			}
+		}
+		internal void WebRequestPreSendBody() {
+			if (this.Enabled == true) {
+				if (this.webRenderDesharpBar == 1 && this.webRedirect != true) {
+					// render debug bar for current request with any previous redirect records from session
+					List<List<RenderedPanel>> renderedPanels = this.webReqEndSession 
+						?? Dispatcher.webGetSessionStorrage();
+					if (this.webBarPanels != null) {
+						renderedPanels.Insert(0, HtmlResponse.RenderDebugPanels(this.webBarPanels));
+						this.webBarPanels = null;
+					}
+					HtmlResponse.WriteDebugBarToResponse(renderedPanels);
+				} else {
+                }
+			} else {
+				if (this.webTransmitErrorPage && Dispatcher.WebStaticErrorPage.Length > 0)
+					HtmlResponse.TransmitStaticErrorPageSendContent();
+			}
+		}
+		protected void webManageContentSecurityPolicyHeader () {
+			IHeaderDictionary rawHeaders = WebContext.Current.Response.Headers;
+			List<string> headers = rawHeaders.Keys.ToList<string>();
+			string headerName = "";
+			string headerValue = "";
+			if (headers.Contains("Content-Security-Policy")) headerName = "Content-Security-Policy";
+			if (headers.Contains("X-Content-Security-Policy")) headerName = "X-Content-Security-Policy";
+			if (headerName.Length == 0) return;
+			headerValue = rawHeaders[headerName].ToString();
+			List<string> headerValueExploded = headerValue.Split(';').ToList<string>();
+			string explodedItem;
+			List<string> resultValues = new List<string>();
+			bool scriptSrcCatched = false;
+			bool styleSrcCatched = false;
+			bool imgSrcCatched = false;
+			bool fontSrcCatched = false;
+			for (int i = 0, l = headerValueExploded.Count; i < l; i += 1) {
+				explodedItem = headerValueExploded[i].Trim();
+				if (explodedItem.IndexOf("script-src") > -1) {
+					scriptSrcCatched = true;
+					if (explodedItem.IndexOf("'unsafe-inline'") == -1) explodedItem += " 'unsafe-inline'";
+					if (explodedItem.IndexOf("'unsafe-eval'") == -1) explodedItem += " 'unsafe-eval'";
+				}
+				if (explodedItem.IndexOf("style-src") > -1) {
+					styleSrcCatched = true;
+					if (explodedItem.IndexOf("'unsafe-inline'") == -1) explodedItem += " 'unsafe-inline'";
+				}
+				if (explodedItem.IndexOf("img-src") > -1) {
+					imgSrcCatched = true;
+					if (explodedItem.IndexOf("'self'") == -1) explodedItem += " 'self'";
+					if (explodedItem.IndexOf("data:") == -1) explodedItem += " data:";
+				}
+				if (explodedItem.IndexOf("font-src") > -1) {
+					fontSrcCatched = true;
+					if (explodedItem.IndexOf("'self'") == -1) explodedItem += " 'self'";
+					if (explodedItem.IndexOf("data:") == -1) explodedItem += " data:";
+				}
+				resultValues.Add(explodedItem);
+			}
+			if (!scriptSrcCatched) resultValues.Add("script-src 'unsafe-inline' 'unsafe-eval'");
+			if (!styleSrcCatched) resultValues.Add("style-src 'unsafe-inline'");
+			if (!imgSrcCatched) resultValues.Add("img-src 'self' data:");
+			if (!fontSrcCatched) resultValues.Add("font-src 'self' data:");
+			WebContext.Current.Response.Headers[headerName] = String.Join("; ", resultValues.ToArray());
+		}
+		internal void WebRequestError (Exception lastException) {
+			if (lastException == null) return;
+			HttpResponse response = WebContext.Current.Response;
+			if (this.Enabled == true) {
+				// render exception and store it for request end to send to into client
+				Debug.Dump(lastException, new DumpOptions {
+					CatchedException = false,
+					SourceLocation = true
+				});
+				if (!response.HasStarted) {
+					response.Clear();
+					response.StatusCode = 500;
+				}
+			} else {
+				// write exception into hard drive
+				Debug.Log(lastException);
+				// clear everything bad, what shoud be written in response
+				if (!response.HasStarted) response.Clear();
+				// transmit error page at request end
+				this.webTransmitErrorPage = true;
+			}
+		}
+		protected static bool webResponseCanHaveBody () {
+			HttpContext context = WebContext.Current;
+			int status = context.Response.StatusCode;
+			return !HttpMethods.IsHead(context.Request.Method) && status >= 200 && status != 204 && status != 205 && status != 304;
+		}
+		protected void webInitEnabled () {
+			this.Enabled = Dispatcher.EnabledGlobal == true;
+			// if there are defined any debug ips - then allow globaly allowed debug mode only for listed client ips
+			if (this.Enabled == true && Dispatcher.WebDebugIps.Count > 0) {
+				string clientIpAddress = Tools.GetClientIpAddress().ToLower();
+				this.Enabled = Dispatcher.WebDebugIps.Contains(clientIpAddress);
+			}
+		}
+		protected void webRequestSessionEndCallBarPanelsSessionEnd () {
+			if (this.webBarPanels != null) {
+				DesharpCore.Panels.ISessionPanel sessionPanel;
+				foreach (var item in this.webBarPanels) {
+					if (item.Value is DesharpCore.Panels.ISessionPanel) {
+						sessionPanel = item.Value as DesharpCore.Panels.ISessionPanel;
+						try {
+							sessionPanel.SessionEnd();
+						} catch { }
+					}
+				}
+			}
+		}
+		protected void webInitWebBarPanels (long crt = -1) {
+			if (this.webRenderDesharpBar < 1) return; // do not register any panels for non html/xml outputs
+			this.webBarPanels = new Dictionary<string, Panels.IPanel>();
+			Panels.IPanel panel;
+			foreach (var item in Dispatcher.webBarRegisteredPanels) {
+				panel = (Panels.IPanel)Activator.CreateInstance(item.Value);
+				if (this.webBarPanels.ContainsKey(panel.Name)) {
+					throw new Exception(String.Format(
+						"Panel with name: '{0}' has been already registered, use different panel name.", panel.Name
+					));
+				}
+				this.webBarPanels.Add(panel.Name, panel);
+			}
+		}
+		protected void webInitBarRendering () {
+			this.webRenderDesharpBar = Dispatcher.WebCheckIfRequestIsForHtml() ? 1 : 0;
+		}
+	}
+}
