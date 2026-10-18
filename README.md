@@ -32,7 +32,9 @@
 
 
 ---
+## Acknowledgement:
 
+**This is a fork of the wonderful debugging utility Desharp by tomFlidr. I have updated it to work with ASP.Net Core 10.**
 
 ## About
 
