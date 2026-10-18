@@ -7,6 +7,7 @@
 ---
 
 ## Outline
+- [**Acknowledgement**](#acknowledgement)
 - [**About**](#about)
 - [**Installation**](#installation)
 - [**Dependency Injection (.NET 10 / .NET Core)**](#dependency-injection-net-10--net-core)
