@@ -295,3 +295,11 @@ obj/Dev/*
 Assets/node_modules/*
 /Assets/package-lock.json
 docs/*
+
+# Build output
+obj/
+**/obj/
+bin/
+**/bin/
+*.log
+.idea/
