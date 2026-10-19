@@ -523,7 +523,6 @@ DesharpCore.Debug.Timer(string name = null, bool returnTimerSeconds = false, Lev
 - console window for console applications
 - Visual Studio console for Windows Forms or WPF applications
 - floating window in HTML response for web applications
-- special HTTP headers for FilePHP browser extension for web applications
 - file logs in text/html formats
 
 
@@ -568,10 +567,10 @@ DesharpCore.Debug.Timer(string name = null, bool returnTimerSeconds = false, Lev
   - exceptions in web environment have always rendered:
     - requested URL, all http request headers, and client IP
     - all loaded assemblies
-    - there is different dump rendering for catched and not catched exceptions:
-      - if the optional flag for catched exception is `true`, exception is rendered as
+    - there is different dump rendering for catch and not catch exceptions:
+      - if the optional flag for catch exception is `true`, exception is rendered as
 	     an openable exception in the floating bar in the left bottom screen corner
-	  - if the optional flag for catched exception is `false`, exception is rendered 
+	  - if the optional flag for catch exception is `false`, exception is rendered 
 	    over the whole browser window immediately with the possibility to close it back into the floating bar 
 
 
@@ -711,7 +710,7 @@ Here are all detailed configuration options you can copy and paste:
         - `from`: Required if no username and password specified, email address to specify sender, if no value specified, there is used `username` value.
         - `username` and `password`: Required if no `from` sender specified, mail server username/password credentials for sender account, always necessary to use together.
 		- `domain` - Not required, no default value. Used only as third parametter for `System.Net.NetworkCredential` if presented.
-        - `to`: Required, single recepient email adress or multiple adresses separated by semicolon `;`.
+        - `to`: Required, single email address or multiple addresses separated by semicolon `;`.
         - `priority`: Not required, possible values: `low` | `normal` | `high` (`normal` by defaut).
         - `timeout`: Not required, smtp server timeout specified in miliseconds, `10000` by default (10 seconds).
 		- `background`: Not required at all. The default value is `true` to send all notifications in background thread. 
@@ -721,7 +720,7 @@ Here are all detailed configuration options you can copy and paste:
     
     /*
       Web debug bar panels.
-      - Not required, recomanded.
+      - Not required, suggested.
       - Full class names separated by comma `,`.
       - Panel class has to implement public interface: `DesharpCore.Panels.IPanel`
       - Panel class could implement interface: `DesharpCore.Panels.ISessionPanel`,
@@ -736,7 +735,7 @@ Here are all detailed configuration options you can copy and paste:
     
     /*
       Absolute or relative path from the application root directory.
-      - Not required, recomanded.
+      - Not required, suggested.
       - Relative path from app root has to start with '~/' like: '~/Path/To/Logs'.
       - If not configured, all log files are written into the application root directory.
     */
@@ -744,7 +743,7 @@ Here are all detailed configuration options you can copy and paste:
     
     /* 
       Always render the source location from where the dump has been called by `Debug.Dump()`.
-      - Not required, recomanded.
+      - Not required, suggested.
       - Possible values: `1`, `0`, `true`, `false`.
       - If not configured, no dump source locations are rendered in dump ouputs.
     */
@@ -761,7 +760,7 @@ Here are all detailed configuration options you can copy and paste:
     
     /*
       .NET objects dumping depth.
-      - Not required, recomanded for speed optimalization in production mode.
+      - Not required, suggested for speed optimization in production mode.
       - Possible values: just digits like `2`, `3`, `4` or `5`.
       - If not configured, `3` by default.
     */
