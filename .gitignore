@@ -303,3 +303,6 @@ bin/
 **/bin/
 *.log
 .idea/
+
+# Junie
+.junie/
