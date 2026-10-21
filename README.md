@@ -15,7 +15,6 @@
   - [**Console Application (.NET 10)**](#console-application-net-10)
   - [**ASP.NET Core MVC 10 Application**](#aspnet-core-mvc-10-application)
 - [**Example Todo MVC Application**](#example-todo-mvc-application)
-- [**Do Not Miss**](#do-not-miss)
 - [**Usage In Code**](#usage-in-code)
   - [**Basic Dumping & Logging Any Structuralized Variables**](#basic-dumping--logging-any-structuralized-variables)
   - [**Basic Dumping & Logging Exceptions**](#basic-dumping--logging-exceptions)
@@ -29,7 +28,6 @@
   - [**Configuration Examples**](#configuration-examples)
   - [**Runtime Configuration Options**](#runtime-configuration-options)
   - [**All Configuration Options**](#all-configuration-options)
-- [**Visual Studio - Code Snippets**](#visual-studio---code-snippets)
 
 
 ---
@@ -811,12 +809,4 @@ Here are all detailed configuration options you can copy and paste:
   }
 }
 ```
-
----
-
-
-## Visual Studio – Code Snippets
-
-To use long **[DesharpCore](https://www.nuget.org/packages/DesharpCore/)** calls more comfortably, install [Visual Studio code snippets](https://github.com/rsobrepena/desharpcore-codesnippets) for desharpcore to create proper shortcuts
-More info [about code snippets for Visual Studio](https://code.visualstudio.com/docs/editor/userdefinedsnippets).
 
